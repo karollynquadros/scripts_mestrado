@@ -1,0 +1,12 @@
+# Ignorar arquivos de dados e credenciais
+data/
+*.csv
+*.xlsx
+*.db
+*.sqlite
+.env
+
+# Ignorar configurações e arquivos do sistema
+.env
+__pycache__/
+.DS_Store
