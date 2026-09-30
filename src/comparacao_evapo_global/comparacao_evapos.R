@@ -5,8 +5,9 @@ library(ggplot2)
 library(lubridate)
 library(png)
 library(grid)
-library(ggplot2)
 
+#teste git
+x<-"b"
 
 load("df_et_bacias.bin")
 load("df_et_xavier_bacias.bin")
