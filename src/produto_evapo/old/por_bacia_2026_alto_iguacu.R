@@ -1,4 +1,5 @@
-library(dplyr)
+# %% esta celula sobe as bibliotecas 
+
 library(sf)
 library(ggplot2)
 library(cowplot)
@@ -13,47 +14,42 @@ library(whitebox)
 library(lubridate)
 library(dplyr)
 library(zoo)
-######### DEIXAR TODAS VARIAVEIS DIVIDIDAS PELA AREA DA BACIA
-load("../../precipitacao_vazao/espacializado_FINAL/df_chuva_espacializada.bin")
-load("../../precipitacao_vazao/espacializado_FINAL/grade_chuva_espacializada.bin")
-load("../../precipitacao_vazao/espacializado_FINAL/inventario.bin")
-load("../../precipitacao_vazao/espacializado_FINAL/df_flu.bin")
+source("funcoes_balanco.R")
 
-contorno_grade <- st_read("/mnt/externo/mestrado_note/mestrado_2026/shapes/contorno_grade/contorno_grade_parana.shp")
-UFs            <- st_read("/mnt/externo/mestrado_note/mestrado_2026/shapes/BR_UF_2022/BR_UF_2022.shp")
 
-inventario_sf <- st_as_sf(
-  inventario,
-  coords = c("Longitude", "Latitude"),
-  crs = 4326
-)
+# %% esta celula sobe as variaveis 
+load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/df_chuva_espacializada_v4.bin")
+grid<- readRDS("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/Grade_IDW_Diaria.rds")
 
-bacias <- st_read("/mnt/externo/mestrado_note/mestrado_2026/shapes/bacias_parana/bacias_agregadas/bacias_agregadas.shp") %>% 
+load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/inventario.bin")
+load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/df_flu.bin")
+
+contorno_grade <- st_read("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/contorno_grade/contorno_grade_parana.shp")
+UFs            <- st_read("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/BR_UF_2022/BR_UF_2022.shp")
+
+inventario_sf <- st_as_sf(inventario,coords = c("Longitude", "Latitude"),crs = 4326)
+
+bacias <- st_read("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/bacias_parana/bacias_agregadas/bacias_agregadas.shp") %>% 
   st_transform(4326)
 
-################# Região: escolhe a bacia
+# %% ################# Região: escolhe a bacia
 bacia <- bacias[bacias$bacia_nome %in% c("Alto_Iguacu", "Medio_Iguacu"), ]
-
 cod_bacia <- "Alto_Iguacu"
-#bacia <- bacias[bacias$bacia_nome =="Alto_Iguacu", ]
-#cod_bacia <- "Alto_Iguacu"
 
-pasta_saida <- file.path("./figuras")
+pasta_saida <- file.path(paste0("/mnt/externo/mestrado_note/evapotranspiration_basin/results/produto_evapo/", cod_bacia))
 
 if (!dir.exists(pasta_saida)) {
   dir.create(pasta_saida, recursive = TRUE)
-  message("📁 Pasta criada: ", pasta_saida)
-}  
+  message("Pasta criada: ", pasta_saida)
+}
 
-r <- rast("/mnt/externo/mestrado_note/mestrado_shapes/mesclado.tiff")
-#r_bacia <- mask(crop(r, vect(bacia)), vect(bacia))
+r <- rast("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/mesclado.tiff")
 r_bacia <- mask(crop(r, vect(bacia)), vect(bacia), 
   filename = file.path(pasta_saida, "r_bacia_recortado.tif"), 
   overwrite = TRUE
 )
-##################################
-# 1. FLU # Seleção de pontos na bacia e cota
-##################################
+
+# %% #1. FLU # Seleção de pontos na bacia e cota
 df_codigos_flu <- st_transform(inventario_sf[inventario_sf$Tipo_Estacao == "Fluviométrica", ], st_crs(bacia))
 
 # Join espacial
@@ -65,10 +61,9 @@ pontos_na_bacia <- df_codigos_flu %>%
 df_flu_bacia <- df_flu[, c("Data", pontos_na_bacia$Codigo)]
 cotas_extraidas <- terra::extract(r_bacia, vect(pontos_na_bacia))
 pontos_na_bacia$Cota <- cotas_extraidas[[2]]
+#%%
+source("funcoes_hidro.R")
 
-#########################################
-# Cálculo da Disponibilidade e Estação Alvo
-#########################################
 bbox_exp <- st_bbox(bacia)
 xlim_exp <- c(bbox_exp["xmin"] - 0.5, bbox_exp["xmax"] + 0.5)
 ylim_exp <- c(bbox_exp["ymin"] - 0.5, bbox_exp["ymax"] + 0.5)
@@ -88,129 +83,288 @@ pontos_na_bacia <- pontos_na_bacia %>%
   left_join(disp_estacoes, by = c("Codigo" = "estacao"))
 
 # DEFINIÇÃO DA ESTAÇÃO SELECIONADA (df_codigos_flu_estacao)
-# Critério: Menor cota e maior número de dias com dados
 df_codigos_flu_estacao <- pontos_na_bacia %>%
 filter(!is.na(Cota), !is.na(n_dias)) %>%
-  arrange(Cota, desc(n_dias)) %>%
-  slice(35)
+arrange(Cota, desc(n_dias)) 
 
-estacao_escolhida <- df_codigos_flu_estacao$Codigo
+# Estações que serão a exutoria da bacia:
+df_estacao_35 <- df_codigos_flu_estacao %>%
+slice(35)
+df_estacao_41 <- df_codigos_flu_estacao %>%
+slice(41)
 
-# Escala visual dos pontos no mapa
-cex_min <- 0.5
-cex_max <- 3
-n_dias_scaled <- scales::rescale(pontos_na_bacia$n_dias, to = c(cex_min, cex_max))
+estacao_escolhida <- df_estacao_35$Codigo
 
-#########################################
-# GERAÇÃO DO MAPA
-#########################################
-{
-png(paste0(pasta_saida, "/", estacao_escolhida, "_mapa_flu_disponibilidade.png"), width = 2000, height = 1800, res = 300)
-
-# Plot Principal
-par(fig = c(0, 1, 0, 1), mar = c(4, 4, 4, 8))
-
-plot(
-  r_bacia,
-  xlim = xlim_exp, ylim = ylim_exp,
-  col = terrain.colors(20),
-  main = "",
-  legend.args = list(text = "Elevação (m)", side = 4, line = 3.5, cex = 0.8),
-  legend.width = 0.5
-)
-
-plot(st_geometry(bacias), add = TRUE, col = NA, border = "gray", lwd = 1)
-plot(st_geometry(UFs), add = TRUE, col = NA, border = "black", lwd = 1)
-
-# Todos os pontos de medição
-plot(
-  st_geometry(pontos_na_bacia),
-  add = TRUE,
-  pch = 21,
-  bg = adjustcolor("blue", 0.5),
-  col = "white",
-  lwd = 0.6,
-  cex = n_dias_scaled
-)
-
-# Ponto em destaque (Estação Escolhida)
-plot(
-  st_geometry(df_codigos_flu_estacao),
-  add = TRUE,
-  pch = 21,
-  bg = "red",
-  col = "yellow",
-  lwd = 1.2,
-  cex = 1.5
-)
-
-# Adiciona o Rótulo (Label) ao lado da Estação Escolhida
-coords_estacao <- st_coordinates(df_codigos_flu_estacao)
-text(
-  x = coords_estacao[1],
-  y = coords_estacao[2],
-  labels = paste0(df_codigos_flu_estacao$Nome, " (", df_codigos_flu_estacao$Codigo, ")"),
-  pos = 4,
-  cex = 0.7,
-  font = 2
-)
-
-# Legenda dos tamanhos de bolinhas
-valores_legenda <- c(0, 1000, 6000)
-tamanhos_legenda <- scales::rescale(valores_legenda, to = c(cex_min, cex_max))
-
-legend(
-  x = -50.15, y = -23.2,
-  legend = paste(valores_legenda, "dias"),
-  pt.cex = tamanhos_legenda,
-  pch = 21,
-  pt.bg = adjustcolor("blue", 0.6),
-  col = "white",
-  title = "Disponibilidade",
-  bty = "n",
-  cex = 0.6
-)
-
-# Mini-mapa no Canto Inferior Esquerdo
-par(
-  fig = c(0.08, 0.28, 0.10, 0.32),
-  mar = c(0, 0, 0, 0),
-  new = TRUE
-)
-
-PR <- UFs %>% filter(SIGLA_UF == "PR")
-bacia_8642 <- bacias %>% filter(bacia_nome == cod_bacia)
-
-plot(st_geometry(PR), col = "grey85", border = "black", lwd = 0.8)
-plot(st_geometry(bacia_8642), col = adjustcolor("blue", 0.35), border = "blue", lwd = 1.2, add = TRUE)
-
-dev.off()
-}
-
-df_codigos_flu_estacao=df_codigos_flu[df_codigos_flu$Codigo==estacao_escolhida  ,]
-bacia_flu<- df_flu[,c("Data",df_codigos_flu_estacao$Codigo)]
+bacia_flu<- df_flu[,c("Data",df_estacao_35$Codigo ,df_estacao_41$Codigo) ]
+bacia_flu <- bacia_flu %>%  mutate(`26025035_tele_flu` = coalesce(`26025035_tele_flu`, `65220001_conv_flu`))
+bacia_flu[3] <- NULL
 names(bacia_flu)[2] <- "exult"
-historico_flu<-bacia_flu
-### completar com a média dias sem dado -- verificar por bacia
-{
-  # 1. Preenchimento por interpolação linear dos NAs internos
-  bacia_flu_preenchido <- bacia_flu %>%
-    # Garante a ordenação temporal correta
-    arrange(Data) %>%
-    
-    # Interpola apenas as falhas que possuem valores antes e depois
-    mutate(
-      exult_preenchido = na.approx(exult, na.rm = FALSE)
-    )
+historico_flu<-bacia_flu 
+datas_na <- historico_flu %>% filter(is.na(exult)) %>%  select(Data)
+
+###Como tem NA faremos o preenchimento com as afluentes
+
+# vertente 1 
+est_51<- (df_codigos_flu_estacao %>%slice(51))$Codigo
+df_51 <- df_flu[,c("Data",est_51)]
+df_51_na <- df_51 %>%  filter(Data %in% datas_na$Data)
+
+est_75<- (df_codigos_flu_estacao %>%slice(75))$Codigo
+df_75 <- df_flu[,c("Data", est_75 )]
+df_75_na <- df_75 %>%  filter(Data %in% datas_na$Data)
+
+est_bacia1<-est_75
+df_bacia1<- full_join(df_75, df_51, by = "Data") %>%  rowwise() %>%  mutate(exult = mean(c_across(-Data), na.rm = TRUE)) %>%  ungroup() %>%  select(Data, exult)
+df_bacia1_na<- full_join(df_75_na, df_51_na, by = "Data") %>%  rowwise() %>%  mutate(exult = mean(c_across(-Data), na.rm = TRUE)) %>%  ungroup() %>%  select(Data, exult)
+
+# vertente 2 
+est_50<- (df_codigos_flu_estacao %>%slice(50))$Codigo
+
+est_bacia2<- est_50
+df_bacia2 <- df_flu %>%  select(exult = all_of(est_50)) %>%  mutate(exult = if_else(exult < 0, NA_real_, exult))
+df_bacia2$Data<-df_flu$Data 
+df_bacia2_na <- df_bacia2 %>%  filter(Data %in% datas_na$Data)
+
+# vertente 3 
+est_42<- (df_codigos_flu_estacao %>%slice(42))$Codigo
+df_42 <- df_flu[,c("Data", est_42)]
+df_42_na <- df_42 %>%  filter(Data %in% datas_na$Data)
+
+est_46<- (df_codigos_flu_estacao %>%slice(46))$Codigo
+df_46 <- df_flu[,c("Data", est_46)]
+df_46_na <- df_46 %>%  filter(Data %in% datas_na$Data)
+
+est_bacia3 <- est_42
+df_bacia3<- full_join(df_42, df_46, by = "Data") %>%  rowwise() %>%  mutate(exult = mean(c_across(-Data), na.rm = TRUE)) %>%  ungroup() %>%  select(Data, exult)
+df_bacia3_na<- full_join(df_42_na, df_46_na, by = "Data") %>%  rowwise() %>%  mutate(exult = mean(c_across(-Data), na.rm = TRUE)) %>%  ungroup() %>%  select(Data, exult)
   
-  # Verificar quantas falhas restaram (devem ser apenas as do final após 2024)
-  summary(bacia_flu_preenchido$exult_preenchido)
+
+
+
+
+# 1. Base hidrológica regional (roda uma vez para todo o MDE da região)
+preparar_base_hidro(r_mde = r_bacia, dir_base = paste0(pasta_saida,"/whitebox_output"))
+
+# 2. Definição das estações de interesse
+estacao_exutoria <- estacao_escolhida
+estacoes_vertente <- c(est_bacia1, est_bacia2, est_bacia3)
+
+todas_estacoes <- c(estacao_exutoria, estacoes_vertente)
+
+# 3. Delimitação e cálculo de área automatizado em lote
+df_areas <- obter_areas_lote(
+  codigos     = todas_estacoes, 
+  df_estacoes = df_codigos_flu_estacao, 
+  dir_base    = "whitebox_output"
+)
+
+# 4. Montar a série do alvo (exutória com junção tele/convencional resolvida)
+serie_alvo <- df_flu %>%
+  transmute(
+    Data  = Data,
+    exult = coalesce(`26025035_tele_flu`, `65220001_conv_flu`)
+  )
+
+# 5. Montar as séries auxiliares/vertentes (nomes das colunas iguais aos códigos de df_areas)
+series_aux <- df_flu %>%
+  transmute(
+    Data       = Data,
+    `65220051` = `65220051_flu`,
+    `65220075` = `65220075_flu`,
+    `65220050` = if_else(`65220050_flu` < 0, NA_real_, `65220050_flu`),
+    `65220042` = `65220042_flu`
+  )
+
+# 6. Executar o preenchimento de falhas genérico
+dados_finais <- preencher_falhas_regressao_generica(
+  df_alvo       = serie_alvo,
+  df_auxiliares = series_aux,
+  df_areas      = df_areas,
+  cod_alvo      = estacao_exutoria
+)
+
+head(dados_finais)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%% # Cálculo da Disponibilidade e Estação Alvo
+
+
+
+# --- PARÂMETROS E ENTRADAS ---
+dir_base <- "whitebox_output"
+
+# Lista de estações a processar
+estacoes_alvo <- c(estacao_escolhida,est_bacia1, est_bacia2, est_bacia3)
+
+# 2. Executa a delimitação e cálculo de área para todas as estações desejadas
+resultados_list <- lapply(estacoes_alvo, function(cod) {
+  delimitar_e_calcular_area(
+    cod_estacao = cod, 
+    df_estacoes = df_codigos_flu_estacao, 
+    dir_base    = dir_base, 
+    snap_dist   = 20
+  )
+})
+
+# Agrupa todos os data.frames em um único
+df_areas <- do.call(rbind, resultados_list)
+
+df_vazao_norm <- historico_flu
+df_vazao_norm$exult <- historico_flu$exult/df_areas$area_km2[1]
+df_vazao_norm$bacia1<-df_bacia1$exult/df_areas$area_km2[2]
+df_vazao_norm$bacia2<-df_bacia2$exult/df_areas$area_km2[3]
+df_vazao_norm$bacia3<-df_bacia3$exult/df_areas$area_km2[4]
+
+# preenchimento por regressao linear multipla e depois só linear
+resultado <- preencher_falhas_regressao(
+  historico_flu = historico_flu,
+  df_bacia1     = df_bacia1,
+  df_bacia2     = df_bacia2,
+  df_bacia3     = df_bacia3,
+  df_areas      = df_areas
+)
+
+historico_flu$preenchido <- resultado$preenchido
+historico_flu$completo   <- resultado$completo
+
+#plot 
+{
+# 1. Cria e armazena o objeto do gráfico
+p <- ggplot(historico_flu, aes(x = Data)) +
+  # 1. Série contínua completa (linha preta bem fina)
+  geom_line(aes(y = completo), color = "gray50", linewidth = 0.3) +
+  
+  # 2. Destaque: Pontos onde a Interpolação atuou
+  geom_point(data = filter(historico_flu, is.na(preenchido) & !is.na(completo)),
+             aes(y = completo, color = "Interpolação Temporal"), size = 2) +
+             
+  # 3. Destaque: Pontos onde a Regressão atuou (onde exult era NA)
+  geom_point(data = filter(historico_flu, is.na(exult) & !is.na(preenchido)),
+             aes(y = preenchido, color = "Regressão Linear"), size = 1.5) +
+  
+  scale_color_manual(
+    values = c(
+      "Regressão Linear"      = "blue",
+      "Interpolação Temporal" = "red"
+    )
+  ) +
+  labs(
+    title = "Série Histórica com Destaque nos Pontos de Preenchimento",
+    subtitle = "Linha cinza: Série contínua | Pontos: Locais onde havia falha (NA)",
+    x = "Data",
+    y = "Vazão (m³/s)",
+    color = "Preenchimento"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# 2. Salva o gráfico na pasta desejada em alta resolução
+ggsave(
+  filename = file.path(paste0(pasta_saida, "/preenchimento_vazao.png")),
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
 }
-bacia_flu$exult<-bacia_flu_preenchido$exult_preenchido
-#--------- só tem dados até: 2024-04-30
-##################################
-# 2. delimitar bacia #(mm) bacia é só a bacia e bacia_completa é todas 
-##################################
+# %%--------- delimitar estacao
+---------------------------------------------------------------------------
+obter_area_bacia <- function(cod_estacao, df_estacoes, dir_base = "whitebox_output") {
+  
+  # Pasta individual para evitar sobrescrever os arquivos temporários do Whitebox
+  dir_out <- file.path(dir_base, paste0("bacia_", cod_estacao))
+  if (!dir.exists(dir_out)) dir.create(dir_out, recursive = TRUE)
+  
+  f_delimitada <- file.path(dir_out, "delimitada.shp")
+  
+  # --- FILTRAR A ESTAÇÃO DESEJADA ---
+  # Procura o código dentro da coluna Codigo ou do objeto sf
+  est_sf <- df_estacoes %>% filter(Codigo == cod_estacao)
+  
+  if (nrow(est_sf) == 0) {
+    stop(paste("Estação", cod_estacao, "não encontrada no conjunto de dados!"))
+  }
+  
+  coords <- st_coordinates(est_sf$geom)
+  df_ponto <- st_sf(
+    Codigo = cod_estacao, 
+    geometry = st_sfc(st_point(coords[1, ]), crs = 4326)
+  )
+  df_ponto$value <- 1
+  
+  # --- PROCESSAMENTO WHITEBOX ---
+  if (!file.exists(f_delimitada)) {
+    message("Processando delimitação para a estação: ", cod_estacao)
+    
+    # Salva o ponto da estação
+    ponto_shp <- file.path(dir_out, "station_point.shp")
+    st_write(df_ponto, ponto_shp, delete_layer = TRUE, quiet = TRUE)
+    
+    # Snap do ponto de exutório no rio
+    ponto_rio_shp <- file.path(dir_out, "ponto_no_rio.shp")
+    wbt_jenson_snap_pour_points(
+      pour_pts  = ponto_shp,
+      streams   = file.path(dir_base, "streams.tif"),
+      output    = ponto_rio_shp,
+      snap_dist = 20
+    )
+    
+    # Delimitação da bacia
+    delimitada_tif <- file.path(dir_out, "delimitada.tif")
+    wbt_watershed(
+      d8_pntr  = file.path(dir_base, "flow_output.tif"),
+      pour_pts = ponto_rio_shp,
+      output   = delimitada_tif
+    )
+    
+    # Vetorização
+    wbt_raster_to_vector_polygons(delimitada_tif, f_delimitada)
+  } else {
+    message("Delimitação já existe para a estação: ", cod_estacao)
+  }
+  
+  # --- CÁLCULO DA ÁREA (km²) ---
+  bacia_sf <- st_read(f_delimitada, quiet = TRUE) %>% 
+    st_set_crs(4326) %>% 
+    st_make_valid()
+  
+  # st_area calcula a área em m² no ellipsoide; dividimos por 1e6 para km²
+  area_km2 <- as.numeric(sum(st_area(bacia_sf))) / 1e6
+  
+  return(data.frame(
+    Codigo = cod_estacao,
+    area_km2 = area_km2,
+    caminho_shp = f_delimitada,
+    stringsAsFactors = FALSE
+  ))
+}
+
+#Delimitar bacia e estações 
 {
 # Criar a pasta de saída se ela ainda não existir
 dir_out <- "whitebox_output"
@@ -288,62 +442,48 @@ rivers   <- st_read(file.path(dir_out, "hidrografia_bacia.shp"), quiet = TRUE) %
 
 exut<- st_read(file.path(dir_out, "ponto_no_rio.shp"), quiet = TRUE)
 }
+
+#Para ver:
+{
 # Salvar Imagem PNG
-{
-png(paste0(pasta_saida, "/", estacao_escolhida, "_delimitada.png"))
-plot(dem, col = "lightgray", legend = FALSE, main = "Bacia Delimitada")
+png(paste0(pasta_saida, "/", estacao_escolhida, "_delimitada.png"), width = 800, height = 800, res = 100)
+
+# 1. Base do DEM
+plot(dem, col = "lightgray", legend = FALSE, main = paste("Bacia Delimitada -", estacao_escolhida))
+
+# 2. Polígono da Bacia
 plot(st_geometry(basin_sf), border = "darkgreen", lwd = 2, add = TRUE)
+
+# 3. Rede de Drenagem / Rios
 plot(st_geometry(rivers), col = "steelblue", lwd = 1, add = TRUE)
+
+# 4. Exutório Principal
 plot(st_geometry(exut), col = "red", pch = 19, cex = 1.5, add = TRUE)
+
+# 5. Adicionando as outras três estações
+plot(st_geometry(est_bacia1_sf), col = "orange", pch = 17, cex = 1.3, add = TRUE)
+plot(st_geometry(est_bacia2_sf), col = "purple", pch = 17, cex = 1.3, add = TRUE)
+plot(st_geometry(est_bacia3_sf), col = "darkblue", pch = 17, cex = 1.3, add = TRUE)
+
+# 6. Legenda
+legend("topleft", 
+       legend = c("Bacia", "Rios", "Exutório Principal", "Estação Bacia 1", "Estação Bacia 2", "Estação Bacia 3"),
+       col = c("darkgreen", "steelblue", "red", "orange", "purple", "darkblue"),
+       pch = c(NA, NA, 19, 17, 17, 17),
+       lty = c(1, 1, NA, NA, NA, NA),
+       lwd = c(2, 1, NA, NA, NA, NA),
+       bg = "white", cex = 0.8)
+
 dev.off()
-
-# --- TRATAMENTO GEOMÉTRICO E CÁLCULO DE ÁREA ---
-basin_sf <- basin_sf %>%
-  select(geometry) %>%      
-  st_cast("MULTIPOLYGON")
-
-bacia_completa <- bacia
-bacia          <- basin_sf
-
-# Reprojetar para UTM 22S (EPSG:32722) e calcular área em m²
-basin_utm <- st_transform(bacia, 32722)
-area_m2   <- st_area(basin_utm)
 }
-# --- CONVERSÃO DA VAZÃO PARA LÂMINA D'ÁGUA (mm/dia) ---
-{
-  bacia_flu$exult<- ((bacia_flu$exult*86400)/ as.numeric(area_m2))*1000 #mm/dia para cada m3 da bacia
 
-}
-##### historico
-historico_flu$exult<-((historico_flu$exult*86400)/ as.numeric(area_m2))*1000
-historico_flu$exult_preenchida<-bacia_flu$exult
-hist <- ggplot(historico_flu) +
-  # Camada inferior: Série preenchida (destaque para as falhas)
-  geom_col(aes(x = Data, y = exult_preenchida), fill = "#e74c3c") + 
-  # Camada superior: Dado original (sobrepõe o preenchido onde existir)
-  geom_col(aes(x = Data, y = exult), fill = "#27ae60") + 
-  labs(y = "Q (mm/dia)", x = "Ano", title = cod_bacia) +
-  scale_x_date(date_labels = "%Y", date_breaks = "2 years") +
-  theme_minimal()
 
-# Salvar a imagem em alta resolução
-ggsave(
-  filename = paste0(pasta_saida, "/historico_flu.png"),
-  plot = hist,
-  width = 15,
-  height = 6,
-  dpi = 300,
-  bg = "white"
-)
-##################################
+
+# %% ##################################
 # 3. PLU #media_bacia_plu  $data $plu_med
 ##################################
 {
-grid <- st_as_sf(
-  grade_chuva_espacializada,
-  coords = c("lon", "lat"),
-  crs = 4326
-)
+grid <- st_as_sf(grade_chuva_espacializada,coords = c("lon", "lat"),crs = 4326)
 # buffer: ids_grid
 {
 # 1. transformar em metros para poder criar o buffer

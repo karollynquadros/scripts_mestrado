@@ -1,12 +1,38 @@
-# Ignorar arquivos de dados e credenciais
-data/
+# --- Arquivos do Sistema e Ambiente ---
+.DS_Store
+Thumbs.db
+__pycache__/
+.env
+.Rhistory
+.RData
+.Rproj.user/
+
+# --- Tabelas e Planilhas de Dados ---
 *.csv
 *.xlsx
+*.xls
 *.db
 *.sqlite
-.env
 
-# Ignorar configurações e arquivos do sistema
-.env
-__pycache__/
-.DS_Store
+# --- Formatos Binários do R ---
+*.bin
+*.rds
+*.RData
+
+# --- Dados Geoespaciais Pesados (Rasters e Vetores) ---
+*.tif
+*.tiff
+*.nc
+*.hdf
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.qpj
+
+# --- Pastas de Dados, Processamento e Resultados ---
+data/
+results/
+whitebox_output/
+whitebox_base/
