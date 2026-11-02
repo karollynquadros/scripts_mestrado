@@ -1,8 +1,11 @@
 #commandArgs(trailingOnly = TRUE)
 
-#args <- list("Alto_Iguacu", c("Alto_Iguacu", "Medio_Iguacu")) nome_bacia_atual <- args[[1]]
-args <- list("Ivai", "Ivai")
-
+#args <- list("Alto_Iguacu", c("Alto_Iguacu", "Medio_Iguacu")) 
+#args <- list("Ivai", "Ivai")
+args <- list("Piquiri", "Piquiri")
+#args <- list("Tibagi", "Tibagi")
+#args <- list("Medio_Iguacu", c("Medio_Iguacu", "Baixo_Iguacu")) 
+#args <- list("Baixo_Iguacu", c("Baixo_Iguacu")) 
 cod_bacia<-args[[1]]
 #%% --------------------- subir as bibliotecas 
 
@@ -27,31 +30,44 @@ source("funcoes_balanco.R")
 
 load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/inventario.bin")
 load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/df_flu.bin")
+UFs<- st_read("/mnt/externo/mestrado_note/mestrado_2026/shapes/BR_UF_2022/BR_UF_2022.shp")
+
 ### verificar na fonte do dado
 names(df_flu) <- make.unique(names(df_flu))
+
 inventario_sf <- st_as_sf(inventario,coords = c("Longitude", "Latitude"),crs = 4326)
+# corrigir coordenada #Piquiri
+idx <- which(inventario_sf$Codigo == "64830000_conv_flu")
+# Lembrete: X = Longitude (-53.7458), Y = Latitude (-24.1871)
+inventario_sf$geometry[idx] <- st_sfc(st_point(c(-53.7458, -24.1871)), crs = st_crs(inventario_sf))
+
+# corrigir coordenada #Tibagi
+idx <- which(inventario_sf$Codigo == "64506000_conv_flu")
+# Lembrete: X = Longitude (-50.9950), 
+inventario_sf$geometry[idx] <- st_sfc(st_point(c(-50.9950, st_coordinates(inventario_sf$geometry[idx])[, "Y"])), crs = st_crs(inventario_sf))
+
+
+# talvez precise disso: coords[1, 1] <-  
+# Estações que serão a exutoria da bacia:
 bacias <- st_read("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/bacias_parana/bacias_agregadas/bacias_agregadas.shp") %>% st_transform(4326)
 r <- rast("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/mesclado.tiff")
-pasta_saida <- file.path(paste0("/mnt/externo/mestrado_note/evapotranspiration_basin/results/produto_evapo/", cod_bacia))
-if (!dir.exists(pasta_saida)) {dir.create(pasta_saida, recursive = TRUE);  message("Pasta criada: ", pasta_saida)}
 
 
 
 #%% --------------------- Ajeitando df_flu
+bacia <- bacias[bacias$bacia_nome %in% args[[2]], ]
 df_codigos_flu <- st_transform(inventario_sf[inventario_sf$Tipo_Estacao == "Fluviométrica", ], st_crs(bacia))
 
-
 #%% --------------------- REPROCESSAR pra cada bacia separando as estações flu na bacia  #pontos_na_bacia
-
 #define a bacia
-bacia <- bacias[bacias$bacia_nome %in% args[[2]], ]
-cod_bacia <- args[1]
-r <- rast("/mnt/externo/mestrado_note/evapotranspiration_basin/data/shapes/mesclado.tiff")
+
+pasta_saida <- file.path(paste0("/mnt/externo/mestrado_note/evapotranspiration_basin/results/produto_evapo/", cod_bacia))
+if (!dir.exists(pasta_saida)) {dir.create(pasta_saida, recursive = TRUE);  message("Pasta criada: ", pasta_saida)}
 r_recorte <- mask(crop(r, vect(bacia)), vect(bacia))
 
 #Atribui cota ao pontos_na_bacia 
 pontos_na_bacia <- df_codigos_flu %>%  st_join(bacia, join = st_within) %>% filter(!is.na(bacia_nome))
-pontos_na_bacia$Cota <- (terra::extract(r_bacia, vect(pontos_na_bacia)))[[2]]
+pontos_na_bacia$Cota <- (terra::extract(r_recorte, vect(pontos_na_bacia)))[[2]]
 
 #Atribuir disponibilidade ao pontos_na_bacia 
 df_flu_bacia <- df_flu[, c("Data", pontos_na_bacia$Codigo)]
@@ -63,7 +79,7 @@ pontos_na_bacia <- pontos_na_bacia %>%  left_join(disp_estacoes, by = c("Codigo"
 #%% --------------------- REPROCESSAR escolher a estação exutoria po disponibilidade e cota
 df_codigos_flu_estacao <- pontos_na_bacia %>%
   filter(!is.na(Cota), !is.na(n_dias)) %>%
-  arrange(Cota, desc(n_dias)) 
+   arrange(Cota, desc(n_dias)) 
 #%% --------------------- REPROCESSAR para cada bacia 
 if (cod_bacia == "Alto_Iguacu") {
 
@@ -142,12 +158,118 @@ serie_alvo<- df_flu[, c('Data',df_estacao_2$Codigo)]
 necessario_consistir <- FALSE
 estacao_exutoria  <- estacao_escolhida
 estacoes_vertente <- NULL 
+series_aux <- NULL}
+
+if (cod_bacia == "Piquiri") { 
+
+# Estações que serão a exutoria da bacia:
+df_estacao_1 <- df_codigos_flu_estacao %>% slice(1)
+estacao_escolhida <- df_estacao_1$Codigo
+serie_alvo<- df_flu[, c('Data',df_estacao_1$Codigo)]
+
+necessario_consistir <- FALSE
+estacao_exutoria  <- estacao_escolhida
+estacoes_vertente <- NULL 
 series_aux <- NULL
-
-
 }
 
+if (cod_bacia == "Tibagi") { 
 
+df_estacao_4 <- df_codigos_flu_estacao %>% slice(4)
+estacao_escolhida <- df_estacao_4$Codigo
+serie_alvo<- df_flu[, c('Data',estacao_escolhida)]
+
+necessario_consistir <- FALSE
+estacao_exutoria  <- estacao_escolhida
+estacoes_vertente <- NULL 
+series_aux <- NULL
+}
+
+if (cod_bacia == "Medio_Iguacu") { 
+#complementares
+df_estacao_77 <- df_codigos_flu_estacao %>% slice(77)
+serie_alvo_77<- df_flu[, c('Data',df_estacao_77$Codigo)]
+estacao_escolhida<- df_estacao_77$Codigo
+
+df_estacao_78 <- df_codigos_flu_estacao %>% slice(78)
+cod_78  <- df_estacao_78$Codigo
+serie_alvo_78<- df_flu[, c('Data',df_estacao_78$Codigo)]
+
+serie_alvo <- tibble(Data = df_flu$Data,"65883051_conv_flu" = coalesce(df_flu[[cod_78]], df_flu[[estacao_escolhida]]))
+
+###Como tem NA faremos o preenchimento com as afluentes
+# --- Vertente 1 ---
+{
+est_51 <- (df_codigos_flu_estacao %>% slice(51))$Codigo
+df_51 <- df_flu[, c("Data", est_51)]
+
+est_52 <- (df_codigos_flu_estacao %>% slice(52))$Codigo
+df_52 <- df_flu[, c("Data", est_52)]
+
+est_bacia1 <- est_51
+df_bacia1 <- full_join(df_51, df_52, by = "Data")
+val_b1 <- rowMeans(df_bacia1[, c(est_51, est_52)], na.rm = TRUE)
+val_b1[is.nan(val_b1)] <- NA_real_
+
+df_bacia1 <- data.frame(Data = df_bacia1$Data, check.names = FALSE)
+df_bacia1[[est_bacia1]] <- val_b1
+}
+# --- Vertente 2 ---
+{
+est_97 <- (df_codigos_flu_estacao %>% slice(97))$Codigo
+est_bacia2 <- est_97
+val_b2 <- df_flu[[est_97]]
+val_b2 <- if_else(val_b2 < 0, NA_real_, val_b2)
+
+df_bacia2 <- data.frame(Data = df_flu$Data, check.names = FALSE)
+df_bacia2[[est_bacia2]] <- val_b2
+}
+
+# 4. Definição das estações de interesse
+estacao_exutoria  <- estacao_escolhida
+estacoes_vertente <- c(est_bacia1, est_bacia2)  
+
+# 5. Montar as séries auxiliares/vertentes (nomes das colunas iguais aos códigos de df_areas)
+series_aux <- df_bacia1 %>%
+  left_join(df_bacia2, by = "Data")
+
+necessario_consistir <- TRUE
+} 
+
+if (cod_bacia == "Baixo_Iguacu") {
+
+# Estações que serão a exutoria da bacia:
+df_estacao_10 <- df_codigos_flu_estacao %>% slice(10)
+estacao_escolhida <- df_estacao_10$Codigo
+serie_alvo<- df_flu[, c('Data',df_estacao_10$Codigo)]
+
+###Como tem NA faremos o preenchimento com as afluentes
+# --- Vertente 1 ---
+{
+est_14 <- (df_codigos_flu_estacao %>% slice(14))$Codigo
+df_14 <- df_flu[, c("Data", est_14)]
+
+est_15 <- (df_codigos_flu_estacao %>% slice(15))$Codigo
+df_15 <- df_flu[, c("Data", est_15)]
+
+est_bacia1 <- est_14
+df_bacia1 <- full_join(df_14, df_15, by = "Data")
+val_b1 <- rowMeans(df_bacia1[, c(est_14, est_15)], na.rm = TRUE)
+val_b1[is.nan(val_b1)] <- NA_real_
+
+df_bacia1 <- data.frame(Data = df_bacia1$Data, check.names = FALSE)
+df_bacia1[[est_bacia1]] <- val_b1
+}
+
+# 4. Definição das estações de interesse
+estacao_exutoria  <- estacao_escolhida
+estacoes_vertente <-est_bacia1  
+
+# 5. Montar as séries auxiliares/vertentes (nomes das colunas iguais aos códigos de df_areas)
+series_aux <- df_bacia1
+
+necessario_consistir <- TRUE
+}
 
 { #plots teste
 #para teste:
@@ -189,7 +311,7 @@ if (!dir.exists(dir_wbt)) dir.create(dir_wbt, recursive = TRUE)
 f_dem_recorte <- file.path(dir_wbt, "dem_recorte.tif")
 
 writeRaster(r_recorte, f_dem_recorte, overwrite = TRUE)
-rm(r, r_recorte); gc()
+#rm(r, r_recorte); gc()
 }
 # 3. Base hidrológica regional dentro da pasta da bacia
 preparar_base_hidro( r_mde    = f_dem_recorte, dir_base = dir_wbt, threshold = 5000)
@@ -200,7 +322,6 @@ todas_estacoes    <- c(estacao_exutoria, estacoes_vertente)
 # 5. Delimitação e cálculo de área no mesmo diretório
 df_areas <- obter_areas_lote(codigos = todas_estacoes,df_estacoes = df_codigos_flu_estacao, dir_base = dir_wbt)
 
-# 6. Executar o preenchimento de falhas genérico
 if (necessario_consistir) {
   message("[Consistência] Executando preenchimento de falhas por regressão...")
   dados_finais <- preencher_falhas_regressao_generica(
@@ -212,11 +333,11 @@ if (necessario_consistir) {
 } else {
   message("[Consistência] Bacia sem necessidade de consistência. Mantendo série original.")
   
-  # Garante que a coluna de vazão se chame 'exult' caso ainda esteja com o código da estação
+  # Garante que acha a coluna de vazão mesmo se tiver o código numérico da estação
   col_val <- setdiff(names(serie_alvo), "Data")[1]
   val_original <- serie_alvo[[col_val]]
   
-  # Cria dados_finais com as mesmas colunas esperadas pelas funções seguintes
+  # Cria a mesma estrutura de colunas que a função de regressão retorna
   dados_finais <- data.frame(
     Data       = serie_alvo$Data,
     original   = val_original,
@@ -224,6 +345,25 @@ if (necessario_consistir) {
     completo   = val_original
   )
 }
+
+area_exut_km2 <- df_areas$area_km2[df_areas$Codigo == as.character(estacao_exutoria)]
+if (length(area_exut_km2) == 0 || is.na(area_exut_km2)) {
+  stop("Área da exutória ", estacao_exutoria, " não encontrada em df_areas!")
+}
+
+area_exut_m2 <- area_exut_km2 * 1e6
+fator_mm_dia <- (86400 / area_exut_m2) * 1000
+
+# Agora 'dados_finais' terá SEMPRE as colunas em m³/s e em mm/dia
+dados_finais <- dados_finais %>%
+  mutate(
+    original_mm   = original * fator_mm_dia,
+    preenchido_mm = preenchido * fator_mm_dia,
+    completo_mm   = completo * fator_mm_dia
+  )
+
+df_flu_bacia <- dados_finais %>%
+  select(Data, exult = completo_mm)
 ## preenchido é com a regressão linear multipla e completo é com a regressao linear simples POR CIMA de tudo
 
 #%% --------------------- Executa a geração dos 2 mapas, o gráfico temporal e a exportação CSV
@@ -243,14 +383,32 @@ dados_mm <- gerar_produtos_hidro_e_plots(
   ufs_shape              = UFs
 )
 
-#%% --------------------- salva em df_dados
-
+#%%
 df_flu_bacia <- dados_finais %>% select(Data, exult = completo_mm)
 
 # Define o caminho da subpasta e cria recursivamente se não existir
 dir_dados <- file.path(pasta_saida, "df_data")
 if (!dir.exists(dir_dados)) dir.create(dir_dados, recursive = TRUE)
 
+if(cod_bacia == "Medio_Iguacu") { 
+df_flu_bacia_medio_iguacu<-df_flu_bacia
+load("/mnt/externo/mestrado_note/evapotranspiration_basin/results/produto_evapo/Alto_Iguacu/df_data/df_flu_bacia.bin")
+df_flu_bacia_alto_iguacu <-df_flu_bacia
+
+df_flu_bacia_medio_iguacu$exult <- df_flu_bacia_medio_iguacu$exult - df_flu_bacia_alto_iguacu$exult
+df_flu_bacia<-df_flu_bacia_medio_iguacu
+}
+
+if(cod_bacia == "Baixo_Iguacu") { 
+df_flu_bacia_baixo_iguacu<-df_flu_bacia
+load("/mnt/externo/mestrado_note/evapotranspiration_basin/results/produto_evapo/Medio_Iguacu/df_data/df_flu_bacia.bin")
+df_flu_bacia_medio_iguacu <-df_flu_bacia
+
+df_flu_bacia_baixo_iguacu$exult <- df_flu_bacia_baixo_iguacu$exult - df_flu_bacia_medio_iguacu$exult
+df_flu_bacia<-df_flu_bacia_baixo_iguacu
+}
 # Salva o arquivo no destino
 save(df_flu_bacia, file = file.path(dir_dados, "df_flu_bacia.bin"))
+
+
 

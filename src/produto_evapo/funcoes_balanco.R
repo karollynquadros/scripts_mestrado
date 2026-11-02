@@ -154,25 +154,29 @@ obter_areas_lote <- function(codigos, df_estacoes, dir_base = "whitebox_base", s
 # 4. PREENCHIMENTO GENÉRICO DE FALHAS (1 ALVO + N AUXILIARES/VERTENTES)
 # ==============================================================================
 preencher_falhas_regressao_generica <- function(df_alvo, df_auxiliares, df_areas, cod_alvo) {
-  # df_alvo: data.frame com colunas c("Data", "exult")
-  # df_auxiliares: data.frame com c("Data", "var1", "var2", ...) onde os nomes batem com df_areas$Codigo
-  # df_areas: data.frame c("Codigo", "area_km2")
   
-  cod_alvo <- as.character(cod_alvo)
+  cod_alvo  <- as.character(cod_alvo)
   area_alvo <- df_areas$area_km2[df_areas$Codigo == cod_alvo]
   
   if (length(area_alvo) == 0) {
     stop("Área do alvo ", cod_alvo, " não encontrada em df_areas!")
   }
   
+  # Garante coluna 'exult' no df_alvo
+  if (!"exult" %in% names(df_alvo)) {
+    col_vazao <- setdiff(names(df_alvo), "Data")[1]
+    df_alvo <- df_alvo %>% rename(exult = all_of(col_vazao))
+  }
+  
   # Junta séries temporais
   df_completo <- inner_join(df_alvo, df_auxiliares, by = "Data")
+  
+  colunas_aux <- setdiff(names(df_auxiliares), "Data")
   
   # Normalização por vazão específica (Q / Área)
   df_norm <- df_completo
   df_norm$exult <- df_norm$exult / area_alvo
   
-  colunas_aux <- setdiff(names(df_auxiliares), "Data")
   for (col in colunas_aux) {
     area_aux <- df_areas$area_km2[df_areas$Codigo == col]
     if (length(area_aux) > 0) {
@@ -180,15 +184,15 @@ preencher_falhas_regressao_generica <- function(df_alvo, df_auxiliares, df_areas
     }
   }
   
-  # --- ETAPA 1: Regressão Linear Múltipla ---
-  formula_mult <- as.formula(paste("exult ~", paste(colunas_aux, collapse = " + ")))
-  mod_mult <- lm(formula_mult, data = df_norm, na.action = na.exclude)
-  pred_mult <- predict(mod_mult, newdata = df_norm)
+  # --- ETAPA 1: Regressão múltipla com crases nos nomes das colunas ---
+  colunas_aux_escapadas <- paste0("`", colunas_aux, "`")
+  formula_mult <- as.formula(paste("exult ~", paste(colunas_aux_escapadas, collapse = " + ")))
+  mod_mult     <- lm(formula_mult, data = df_norm, na.action = na.exclude)
+  pred_mult    <- predict(mod_mult, newdata = df_norm)
   
   df_norm$exult_reg <- if_else(is.na(df_norm$exult), pred_mult, df_norm$exult)
   
-  # --- ETAPA 2: Fallback com Regressões Lineares Simples ---
-  # Roda modelos univariados para cada auxiliar ordenada por correlação
+  # --- ETAPA 2: Fallback univariado caso ainda restem NAs ---
   if (any(is.na(df_norm$exult_reg))) {
     correlacoes <- sapply(colunas_aux, function(col) {
       cor(df_norm$exult, df_norm[[col]], use = "complete.obs")
@@ -197,22 +201,22 @@ preencher_falhas_regressao_generica <- function(df_alvo, df_auxiliares, df_areas
     
     for (col in colunas_ordenadas) {
       if (!any(is.na(df_norm$exult_reg))) break
-      f_simples <- as.formula(paste("exult ~", col))
-      mod_s <- lm(f_simples, data = df_norm, na.action = na.exclude)
-      pred_s <- predict(mod_s, newdata = df_norm)
+      f_simples <- as.formula(paste0("exult ~ `", col, "`"))
+      mod_s     <- lm(f_simples, data = df_norm, na.action = na.exclude)
+      pred_s    <- predict(mod_s, newdata = df_norm)
       df_norm$exult_reg <- if_else(is.na(df_norm$exult_reg), pred_s, df_norm$exult_reg)
     }
   }
   
-  # --- ETAPA 3: Interpolação Linear Temporal ---
+  # --- ETAPA 3: Interpolação temporal linear para falhas curtas pontuais ---
   df_norm$exult_comp <- df_norm$exult_reg
   if (any(is.na(df_norm$exult_comp))) {
-    df_norm$exult_comp <- na.approx(df_norm$exult_comp, na.rm = FALSE)
-    df_norm$exult_comp <- na.locf(df_norm$exult_comp, na.rm = FALSE)
-    df_norm$exult_comp <- na.locf(df_norm$exult_comp, fromLast = TRUE, na.rm = FALSE)
+    df_norm$exult_comp <- zoo::na.approx(df_norm$exult_comp, na.rm = FALSE)
+    df_norm$exult_comp <- zoo::na.locf(df_norm$exult_comp, na.rm = FALSE)
+    df_norm$exult_comp <- zoo::na.locf(df_norm$exult_comp, fromLast = TRUE, na.rm = FALSE)
   }
   
-  # Desnormaliza para m³/s
+  # Retorna as vazões em m³/s
   return(data.frame(
     Data       = df_completo$Data,
     original   = df_completo$exult,
@@ -220,6 +224,7 @@ preencher_falhas_regressao_generica <- function(df_alvo, df_auxiliares, df_areas
     completo   = df_norm$exult_comp * area_alvo
   ))
 }
+
 
 # ==============================================================================
 # 5. PLOTS FLU 

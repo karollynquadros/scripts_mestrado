@@ -620,7 +620,7 @@ df_plu <- df_plu_consistido
 #############################################
 sf_use_s2(FALSE)
 grade_01_sf <- st_make_grid(contorno_grade, cellsize = c(0.1, 0.1), what = "polygons") %>%  st_sf()
-grade_01_recortada <- st_intersection(grade_grade_01_sf, contorno) %>%   st_make_valid()
+grade_01_recortada <- st_intersection(grade_01_sf, contorno_grade) %>%   st_make_valid()
 
 # 3. Extrair os centroides temporários para fazer a ordenação geográfica
 centroides_temp <- st_centroid(grade_01_recortada) %>%   st_coordinates() %>%   as.data.frame() %>% 
