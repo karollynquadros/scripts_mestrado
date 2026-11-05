@@ -2,10 +2,10 @@
 
 #args <- list("Alto_Iguacu", c("Alto_Iguacu", "Medio_Iguacu")) 
 #args <- list("Ivai", "Ivai")
-args <- list("Piquiri", "Piquiri")
+#args <- list("Piquiri", "Piquiri")
 #args <- list("Tibagi", "Tibagi")
 #args <- list("Medio_Iguacu", c("Medio_Iguacu", "Baixo_Iguacu")) 
-#args <- list("Baixo_Iguacu", c("Baixo_Iguacu")) 
+args <- list("Baixo_Iguacu", c("Baixo_Iguacu")) 
 cod_bacia<-args[[1]]
 #%% --------------------- subir as bibliotecas 
 
@@ -382,7 +382,6 @@ dados_mm <- gerar_produtos_hidro_e_plots(
   bacias_shape           = bacias,
   ufs_shape              = UFs
 )
-
 #%%
 df_flu_bacia <- dados_finais %>% select(Data, exult = completo_mm)
 
@@ -407,8 +406,15 @@ df_flu_bacia_medio_iguacu <-df_flu_bacia
 df_flu_bacia_baixo_iguacu$exult <- df_flu_bacia_baixo_iguacu$exult - df_flu_bacia_medio_iguacu$exult
 df_flu_bacia<-df_flu_bacia_baixo_iguacu
 }
-# Salva o arquivo no destino
+
+#%% plot
+ggplot(df_flu_bacia, aes(x = Data, y = exult)) +
+  geom_line(color = "steelblue", linewidth = 0.6) +
+  labs(
+    title = "Série Temporal de Exutório da Bacia",
+    x = "Data",
+    y = "Exutório (exult)"
+  ) +
+  theme_minimal()
+#%% Salva o arquivo no destino
 save(df_flu_bacia, file = file.path(dir_dados, "df_flu_bacia.bin"))
-
-
-

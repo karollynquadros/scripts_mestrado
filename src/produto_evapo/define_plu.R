@@ -20,7 +20,6 @@ source("funcoes_balanco.R")
 
 #%% --------------------- Importar arquivos espaciais
 
-#UFs<- st_read("/mnt/externo/mestrado_note/mestrado_2026/shapes/BR_UF_2022/BR_UF_2022.shp")
 load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/df_chuva_espacializada_v4.bin")
 load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vazao/sf_grid_interpolado.bin")
 
@@ -33,7 +32,7 @@ load("/mnt/externo/mestrado_note/evapotranspiration_basin/data/precipitacao_vaza
 #args <- list("Piquiri", "estacao_64890000_conv_flu")
 #args <- list("Tibagi", "estacao_64506000_conv_flu")
 #args <- list("Medio_Iguacu", "estacao_65883051_conv_flu") 
-args <- list("Baixo_Iguacu", "estacao_25345435_tele_flu") 
+#args <- list("Baixo_Iguacu", "estacao_25345435_tele_flu") 
 cod_bacia<-args[[1]]
 
 #%% --------------------- Ajeitando df_plu

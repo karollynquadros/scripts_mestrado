@@ -16,7 +16,8 @@ library(whitebox)
 library(zoo)
 library(ggplot2)
 library(scales)
-
+library(lubridate)
+library(patchwork)
 
 
 # ==============================================================================
@@ -225,11 +226,7 @@ preencher_falhas_regressao_generica <- function(df_alvo, df_auxiliares, df_areas
   ))
 }
 
-
-# ==============================================================================
-# 5. PLOTS FLU 
-# ==============================================================================
-
+# %% 5. PLOTS FLU --- apagar
 gerar_produtos_hidro_e_plots_old <- function(nome_bacia,
                                         estacao_exutoria,
                                         todas_estacoes,
@@ -442,12 +439,9 @@ gerar_produtos_hidro_e_plots_old <- function(nome_bacia,
   return(invisible(dados_convertidos))
 }
 
-library(ggplot2)
-library(scales)
-library(terra)
-library(sf)
-library(dplyr)
 
+
+# %% 6. gerar_produtos_hidro_e_plots
 gerar_produtos_hidro_e_plots <- function(nome_bacia,
                                         estacao_exutoria,
                                         todas_estacoes,
@@ -696,4 +690,140 @@ gerar_produtos_hidro_e_plots <- function(nome_bacia,
   message("[Produtos] Concluído com sucesso na pasta: ", pasta_saida)
   
   return(invisible(dados_convertidos))
+}
+
+#%% gerar_grafico_balanco_final
+
+gerar_grafico_balanco <- function(dados, 
+                                  col_data, 
+                                  col_p = "plu_med",
+                                  col_q = "exult",
+                                  col_ds = "grace",
+                                  col_e = "evapo",
+                                  escala = c("diario", "mensal", "anual", "intervalo"),
+                                  rotulo_eixo_x = "Data",
+                                  pasta_saida = NULL,
+                                  nome_arquivo = NULL) {
+  
+  escala <- match.arg(escala)
+  
+  unidade <- switch(escala,
+    "diario"    = "mm/dia",
+    "mensal"    = "mm/mês",
+    "anual"     = "mm/ano",
+    "intervalo" = "mm/intervalo"
+  )
+  
+  criar_subgrafico <- function(var_y, cor, rotulo_y, eixo_x_visivel = FALSE) {
+    p <- ggplot(dados, aes(x = .data[[col_data]], y = .data[[var_y]])) +
+      geom_col(fill = cor) +
+      labs(y = rotulo_y, x = if (eixo_x_visivel) rotulo_eixo_x else NULL) +
+      theme_minimal()
+    
+    if (!eixo_x_visivel) {
+      p <- p + 
+        scale_x_date(date_labels = "%Y", date_breaks = "2 years") +
+        theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+    } else {
+      p <- p + 
+        scale_x_date(
+          date_labels = if (escala %in% c("anual", "diario")) "%Y" else "%m/%Y", 
+          date_breaks = if (escala %in% c("anual", "diario")) "2 years" else "1 year"
+        ) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    }
+    return(p)
+  }
+  
+  p_plu   <- criar_subgrafico(col_p,  "#2980b9", paste0("P (", unidade, ")"))
+  p_flu   <- criar_subgrafico(col_q,  "#27ae60", paste0("Q (", unidade, ")"))
+  p_grace <- criar_subgrafico(col_ds, "#8e44ad", paste0("ΔS (", unidade, ")"))
+  p_evapo <- criar_subgrafico(col_e,  "#e67e22", paste0("E (", unidade, ")"), eixo_x_visivel = TRUE)
+  
+  titulo_escala <- switch(escala,
+    "diario"    = "Diário",
+    "mensal"    = "Mensal",
+    "anual"     = "Anual",
+    "intervalo" = "por Intervalo de Amostragem do GRACE"
+  )
+  
+  subtitulo_escala <- switch(escala,
+    "diario"    = "Diariamente",
+    "mensal"    = "Mensalmente",
+    "anual"     = "Anualmente",
+    "intervalo" = "por Intervalo"
+  )
+  
+  grafico_final <- p_plu / p_flu / p_grace / p_evapo + 
+    plot_annotation(
+      title = paste("Balanço Hídrico", titulo_escala, "da Bacia"),
+      subtitle = paste0("Componentes Acumulados ", subtitulo_escala, " (E = P - Q - ΔS)"),
+      theme = theme(plot.title = element_text(face = "bold", size = 14))
+    )
+  
+  if (!is.null(pasta_saida) && !is.null(nome_arquivo)) {
+    ggsave(
+      filename = file.path(pasta_saida, nome_arquivo),
+      plot = grafico_final,
+      width = 12,
+      height = 10,
+      dpi = 300,
+      bg = "white"
+    )
+  }
+  
+  return(grafico_final)
+}
+#%% boxplot balanço
+gerar_boxplot_climatologia <- function(dados,
+                                       col_data = "Data_Mes",
+                                       col_ds = "h_bacia_mensal",
+                                       pasta_saida = NULL,
+                                       nome_arquivo = "climatologia_mensal_boxplots.png") {
+  
+  # 1. Preparação da coluna de mês
+  df_clim <- dados %>%
+    mutate(mes = month(.data[[col_data]], label = TRUE, abbr = TRUE))
+  
+  # 2. Construtor modular dos boxplots
+  criar_boxplot <- function(var_y, cor, rotulo_y, eixo_x_visivel = FALSE) {
+    p <- ggplot(df_clim, aes(x = mes, y = .data[[var_y]])) +
+      geom_boxplot(fill = cor, alpha = 0.7, outlier.size = 0.5) +
+      labs(y = rotulo_y, x = if (eixo_x_visivel) "Mês" else NULL) +
+      theme_minimal()
+    
+    if (!eixo_x_visivel) {
+      p <- p + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+    }
+    return(p)
+  }
+  
+  # 3. Geração dos 4 subplots
+  b_plu   <- criar_boxplot("plu_med", "#2980b9", "P (mm/mês)")
+  b_flu   <- criar_boxplot("exult",   "#27ae60", "Q (mm/mês)")
+  b_grace <- criar_boxplot(col_ds,    "#8e44ad", "ΔS (mm/mês)")
+  b_evapo <- criar_boxplot("evapo",   "#e67e22", "E (mm/mês)", eixo_x_visivel = TRUE)
+  
+  # 4. Montagem com patchwork
+  climatologia <- (b_plu / b_flu / b_grace / b_evapo) +
+    plot_layout(axes = "collect") +
+    plot_annotation(
+      title = "Climatologia Mensal dos Componentes do Balanço Hídrico",
+      subtitle = "Distribuição acumulada mensal (E = P - Q - ΔS)",
+      theme = theme(plot.title = element_text(face = "bold", size = 14))
+    )
+  
+  # 5. Salvamento opcional
+  if (!is.null(pasta_saida) && !is.null(nome_arquivo)) {
+    ggsave(
+      filename = file.path(pasta_saida, nome_arquivo),
+      plot = climatologia,
+      width = 14,
+      height = 8,
+      dpi = 300,
+      bg = "white"
+    )
+  }
+  
+  return(climatologia)
 }
