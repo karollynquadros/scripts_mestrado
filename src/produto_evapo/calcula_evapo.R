@@ -21,10 +21,10 @@ source("funcoes_balanco.R")
 
 # %% # definindo a bacia
 
-##args <- list("Alto_Iguacu","estacao_26025035_tele_flu" ) 
-##args <- list("Ivai", "estacao_64693000_conv_flu")
-##args <- list("Piquiri", "estacao_64890000_conv_flu")
-##args <- list("Tibagi", "estacao_64506000_conv_flu")
+#args <- list("Alto_Iguacu","estacao_26025035_tele_flu" ) 
+#args <- list("Ivai", "estacao_64693000_conv_flu")
+#args <- list("Piquiri", "estacao_64890000_conv_flu")
+#args <- list("Tibagi", "estacao_64506000_conv_flu")
 #args <- list("Medio_Iguacu", "estacao_65883051_conv_flu") 
 args <- list("Baixo_Iguacu", "estacao_25345435_tele_flu") 
 cod_bacia<-args[[1]]
@@ -111,7 +111,7 @@ g_mensal <- gerar_grafico_balanco(
 )
 
 #%% ################################## PRODUTO MENSAL Correção dos negativos
-df_balanco_mensal_corrigido <- df_balanco_mensal %>%
+df_balanco_mensal <- df_balanco_mensal %>%
   mutate(
     # Soma total dos valores negativos (em valor absoluto)
     total_deficit = sum(abs(evapo[evapo < 0]), na.rm = TRUE),
@@ -125,7 +125,7 @@ df_balanco_mensal_corrigido <- df_balanco_mensal %>%
   select(-total_deficit, -n_positivos, -desconto)
 
 g_mensal_corrigido <- gerar_grafico_balanco(
-  dados = df_balanco_mensal_corrigido, col_data = "Data_Mes", col_ds = "grace",
+  dados = df_balanco_mensal, col_data = "Data_Mes", col_ds = "grace",
   escala = "mensal", pasta_saida = pasta_saida, nome_arquivo = "balanco_mensal.png"
 )
 

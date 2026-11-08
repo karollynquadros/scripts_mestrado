@@ -7,12 +7,12 @@ library(grid)
 
 # %% # definindo a bacia
 
-args <- list("Alto_Iguacu","estacao_26025035_tele_flu" ) 
-##args <- list("Ivai", "estacao_64693000_conv_flu")
-##args <- list("Piquiri", "estacao_64890000_conv_flu")
-##args <- list("Tibagi", "estacao_64506000_conv_flu")
+#args <- list("Alto_Iguacu","estacao_26025035_tele_flu" ) 
+#args <- list("Ivai", "estacao_64693000_conv_flu")
+#args <- list("Piquiri", "estacao_64890000_conv_flu")
+#args <- list("Tibagi", "estacao_64506000_conv_flu")
 #args <- list("Medio_Iguacu", "estacao_65883051_conv_flu") 
-#args <- list("Baixo_Iguacu", "estacao_25345435_tele_flu") 
+args <- list("Baixo_Iguacu", "estacao_25345435_tele_flu") 
 cod_bacia<-args[[1]]
 
 
@@ -199,3 +199,5 @@ ggsave(
 )
 
 print(p_anual_et)
+
+#%%
